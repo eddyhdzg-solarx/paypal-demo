@@ -27,7 +27,7 @@ export async function GET(request: Request) {
           Authorization: `Basic ${base64Credentials}`,
           // "Content-Type": "application/x-www-form-urlencoded",
         },
-        body: `grant_type=authorization_code&code=${authorizationCode}`,
+        // body: `grant_type=authorization_code&code=${authorizationCode}`,
       },
     );
 
