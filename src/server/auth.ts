@@ -1,12 +1,13 @@
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
-import type { User } from "@prisma/client";
 import { getServerSession, type NextAuthOptions } from "next-auth";
+import type { AdapterAccount } from "next-auth/adapters";
 
 import { db } from "~/server/db";
 
 interface UserInfo {
   user_id: string;
   sub: string;
+  name: string;
   email: string;
   verified: "true" | "false";
   payer_id: string;
@@ -18,22 +19,18 @@ type Profile = {
   id: string;
   sub: string;
   email: string;
+  name: string;
+  email_verified: boolean;
 };
 
-const { PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET } = process.env;
-const BASE_URL = "https://www.sandbox.paypal.com/signin/authorize";
-const SCOPES = "openid email https://uri.paypal.com/services/paypalattributes";
-// const REDIRECT_URL = encodeURIComponent("https://example.com");
-const REDIRECT_URL = encodeURIComponent(
-  "http://192.168.86.23:3000/api/auth/callback/paypal",
-);
-// const URL = `${BASE_URL}?flowEntry=static&client_id=${CLIENT_ID}&scope=${SCOPES}&redirect_uri=${REDIRECT_URL}&fullPage=false`;
-// const AUTHORIZATION_URL = `${BASE_URL}?flowEntry=static&client_id=${PAYPAL_CLIENT_ID}`;
-const AUTHORIZATION_URL = `${BASE_URL}?flowEntry=static&client_id=${PAYPAL_CLIENT_ID}&scope=${SCOPES}&redirect_uri=${REDIRECT_URL}&fullPage=false`;
+const NEXTAUTH_URL = process.env.NEXTAUTH_URL ?? "";
 
-const base64Credentials = Buffer.from(
-  `${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`,
-).toString("base64");
+const SCOPE =
+  "openid profile email https://uri.paypal.com/services/paypalattributes";
+const REDIRECT_URL = encodeURIComponent(
+  `${NEXTAUTH_URL}/api/auth/callback/paypal`,
+);
+const AUTHORIZATION_URL = "https://www.sandbox.paypal.com/signin/authorize";
 
 const adapter = PrismaAdapter(db);
 
@@ -45,31 +42,31 @@ const adapter = PrismaAdapter(db);
 export const authOptions: NextAuthOptions = {
   adapter: {
     ...adapter,
-    linkAccount: ({ nonce, ...data }) => {
-      console.log("🔗🔗🔗🔗🔗 linkAccount");
-      console.log(data);
-      return db.account.create({ data });
+    linkAccount: (account) => {
+      const data: AdapterAccount = {
+        access_token: account.access_token,
+        expires_at: account.expires_at,
+        id_token: account.id_token,
+        provider: account.provider,
+        providerAccountId: account.providerAccountId,
+        refresh_token: account.refresh_token,
+        scope: account.scope,
+        session_state: account.session_state,
+        token_type: account.token_type,
+        type: account.type,
+        userId: account.userId,
+      };
+      return db.account.create({ data }) as unknown as AdapterAccount;
     },
   },
   providers: [
     {
-      allowDangerousEmailAccountLinking: true,
-
       id: "paypal",
       name: "PayPal",
       type: "oauth",
-      httpOptions: {
-        headers: {
-          authorization: `Basic ${base64Credentials}`,
-          "x-content-type-options": "application/x-www-form-urlencoded",
-        },
-      },
-      idToken: true,
-      checks: ["none"],
       authorization: {
         params: {
-          scope:
-            "openid email https://uri.paypal.com/services/paypalattributes",
+          scope: SCOPE,
           redirect_uri: REDIRECT_URL,
         },
         url: AUTHORIZATION_URL,
@@ -85,10 +82,9 @@ export const authOptions: NextAuthOptions = {
           return { tokens };
         },
       },
-
       userinfo: {
         async request({ tokens }) {
-          const test = await fetch(
+          const data = await fetch(
             "https://api-m.sandbox.paypal.com/v1/identity/openidconnect/userinfo?schema=openid",
             {
               method: "POST",
@@ -98,12 +94,14 @@ export const authOptions: NextAuthOptions = {
             },
           );
 
-          const user = (await test.json()) as UserInfo;
+          const user = (await data.json()) as UserInfo;
 
           return {
             id: user.sub,
             sub: user.sub,
             email: user.email,
+            name: user.name,
+            emailVerified: user.email_verified,
           };
         },
       },
@@ -113,51 +111,16 @@ export const authOptions: NextAuthOptions = {
         return {
           id: profile?.sub,
           email: profile?.email,
+          name: profile.name,
           image: null,
-          name: null,
         };
       },
     },
   ],
-  // callbacks: {
-  //   jwt: ({ token, user }) => {
-  //     console.log("😟😟😟😟😟 JWT");
-  //     if (user) {
-  //       return {
-  //         ...token,
-  //         id: user.id,
-  //       };
-  //     }
-  //     return token;
-  //   },
-  //   session: ({ session, token }) => {
-  //     console.log("😟😟😟😟😟 session");
-  //     return {
-  //       ...session,
-  //       user: {
-  //         ...session.user,
-  //         id: token.id,
-  //       },
-  //     };
-  //   },
-  //   signIn({ user, account, profile, email, credentials }) {
-  //     console.log("😟😟😟😟😟 signIn");
-  //     console.log(user);
-  //     console.log(account);
-  //     console.log(profile);
-  //     console.log(email);
-  //     console.log(credentials);
-  //     if (user) {
-  //       return true;
-  //     }
-  //     return false;
-  //   },
-  // },
   session: {
     strategy: "jwt",
   },
   secret: process.env.NEXTAUTH_SECRET,
-  // debug: true,
 };
 
 /**
